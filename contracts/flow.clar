@@ -11,6 +11,7 @@
 (define-constant ERR-DEPOSIT-FAILED (err u406))
 (define-constant ERR-WITHDRAW-FAILED (err u407))
 (define-constant ERR-INVALID-BTC-ADDRESS (err u408))
+(define-constant ERR-INVALID-REQUEST-ID (err u409))
 
 ;; Define data maps for tracking balances, deposits, withdrawals, and user data
 (define-map user-balances 
@@ -79,8 +80,13 @@
   )
 )
 
-;; Read-only functions (previous read-only functions remain the same)
-;; ... (keep all previous read-only functions)
+;; Private function to validate request ID
+(define-private (is-valid-request-id (request-id (buff 32)))
+  (and 
+    (is-eq (len request-id) u32)  ;; Ensure exactly 32 bytes
+    (not (is-eq request-id 0x00000000000000000000000000000000))  ;; Prevent zero-filled IDs
+  )
+)
 
 ;; Utility function to generate unique request ID
 (define-private (generate-request-id)
@@ -178,7 +184,17 @@
 (define-public (complete-deposit (user principal) (request-id (buff 32)))
   (let
     (
-      (request (unwrap! (map-get? deposit-requests { user: user, request-id: request-id }) ERR-NO-PENDING-REQUEST))
+      ;; Validate the request ID
+      (validated-request-id 
+        (unwrap! 
+          (if (is-valid-request-id request-id)
+            (some request-id)
+            none
+          )
+          ERR-INVALID-REQUEST-ID
+        )
+      )
+      (request (unwrap! (map-get? deposit-requests { user: user, request-id: validated-request-id }) ERR-NO-PENDING-REQUEST))
       (current-balance (get sbtc-balance (default-to { sbtc-balance: u0 } (map-get? user-balances { user: user }))))
       (deposit-amount (get amount request))
       (new-balance (+ current-balance deposit-amount))
@@ -190,7 +206,7 @@
     
     ;; Update deposit request status
     (map-set deposit-requests
-      { user: user, request-id: request-id }
+      { user: user, request-id: validated-request-id }
       (merge request { status: "completed" })
     )
     
