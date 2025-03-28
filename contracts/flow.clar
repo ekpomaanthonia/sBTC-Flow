@@ -174,3 +174,32 @@
   )
 )
 
+;; Complete deposit after sBTC confirmation
+(define-public (complete-deposit (user principal) (request-id (buff 32)))
+  (let
+    (
+      (request (unwrap! (map-get? deposit-requests { user: user, request-id: request-id }) ERR-NO-PENDING-REQUEST))
+      (current-balance (get sbtc-balance (default-to { sbtc-balance: u0 } (map-get? user-balances { user: user }))))
+      (deposit-amount (get amount request))
+      (new-balance (+ current-balance deposit-amount))
+    )
+    ;; Only contract owner or the user can complete the deposit
+    (asserts! (or (is-eq tx-sender (var-get contract-owner)) (is-eq tx-sender user)) ERR-NOT-AUTHORIZED)
+    ;; Make sure status is pending
+    (asserts! (is-eq (get status request) "pending") ERR-INVALID-AMOUNT)
+    
+    ;; Update deposit request status
+    (map-set deposit-requests
+      { user: user, request-id: request-id }
+      (merge request { status: "completed" })
+    )
+    
+    ;; Update user balance
+    (map-set user-balances
+      { user: user }
+      { sbtc-balance: new-balance }
+    )
+    
+    (ok true)
+  )
+)
